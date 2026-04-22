@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cloud Chat | Secure Access</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #dadbd3;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* FULL SCREEN LOGIN */
+        #login-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #00a884;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .login-card {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            width: 320px;
+            text-align: center;
+        }
+
+        .login-card h2 { color: #111b21; margin-bottom: 25px; }
+
+        .login-card input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 15px;
+        }
+
+        .login-card button {
+            width: 100%;
+            padding: 12px;
+            background: #00a884;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 16px;
+            transition: 0.3s;
+        }
+
+        .login-card button:hover { background: #008f6f; }
+
+        #error-msg { color: #ea0038; font-size: 13px; margin-bottom: 10px; display: none; }
+
+        /* SIDEBAR */
+        .sidebar {
+            width: 30%;
+            background: #111b21;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #2a3942;
+        }
+
+        .my-profile {
+            padding: 15px;
+            background: #202c33;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #00a884;
+            font-weight: bold;
+        }
+
+        .contacts-list { flex: 1; overflow-y: auto; }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 15px;
+            border-bottom: 1px solid #2a3942;
+            cursor: pointer;
+        }
+
+        .contact-item:hover { background: #2a3942; }
+        .contact-item.active { background: #374248; }
+
+        .contact-item img { width: 45px; height: 45px; border-radius: 50%; }
+
+        /* CHAT WINDOW */
+        .chat-container { flex: 1; display: flex; flex-direction: column; background: #efeae2; }
+
+        .chat-header {
+            background: #202c33;
+            color: white;
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .chat-header img { width: 40px; height: 40px; border-radius: 50%; }
+
+        .messages-display { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+
+        .bubble {
+            max-width: 65%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin: 4px 0;
+            font-size: 14.5px;
+        }
+
+        .sent { background: #d9fdd3; align-self: flex-end; border-top-right-radius: 0; }
+        .received { background: white; align-self: flex-start; border-top-left-radius: 0; }
+
+        .timestamp { font-size: 10px; color: #667781; text-align: right; margin-top: 4px; }
+
+        .input-area { background: #f0f2f5; padding: 15px; display: flex; gap: 10px; }
+
+        .input-area input { flex: 1; padding: 12px; border: none; border-radius: 8px; outline: none; }
+
+        .input-area button { background: #00a884; color: white; border: none; padding: 0 25px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="login-overlay">
+    <div class="login-card">
+        <h2>Cloud Chat Login</h2>
+        <div id="error-msg">Invalid username or password!</div>
+        <input type="text" id="userIn" placeholder="Username" autocomplete="off">
+        <input type="password" id="passIn" placeholder="Password">
+        <button onclick="attemptLogin()">Login</button>
+        <p style="font-size: 11px; color: #888; margin-top: 15px;">
+            Hint: User: Rohit / Pass: 123
+        </p>
+    </div>
+</div>
+
+<div class="sidebar">
+    <div class="my-profile">
+        <span id="meDisplay">Not logged in</span>
+        <span onclick="location.reload()" style="cursor:pointer; font-size:12px; color:#aaa;">Logout</span>
+    </div>
+    <div class="contacts-list" id="contacts"></div>
+</div>
+
+<div class="chat-container">
+    <div class="chat-header">
+        <img id="headerImg" src="" style="display:none;">
+        <span id="headerName">Select a friend to chat</span>
+    </div>
+
+    <div class="messages-display" id="msgBox"></div>
+
+    <div class="input-area">
+        <input type="text" id="msgInput" placeholder="Type a message..." disabled>
+        <button id="sendBtn" onclick="doSend()" disabled>Send</button>
+    </div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+
+const socket = io();
+
+// Database of users and passwords
+const userDB = {
+    "Rohit": "123",
+    "Ravi": "123",
+    "Raghvendra": "123",
+    "Sachin": "123",
+    "Kamna": "123",
+    "Harsh": "123",
+    "Mahi": "123",
+    "Pratigya": "123"
+};
+
+let loggedInUser = "";
+let targetUser = "";
+
+function attemptLogin() {
+
+    const u = document.getElementById("userIn").value.trim();
+    const p = document.getElementById("passIn").value;
+
+    const err = document.getElementById("error-msg");
+
+    if (userDB[u] && userDB[u] === p) {
+
+        loggedInUser = u;
+
+        document.getElementById("login-overlay").style.display = "none";
+
+        document.getElementById("meDisplay").innerText = "Me: " + u;
+
+        loadSidebar();
+
+    } else {
+
+        err.style.display = "block";
+
+    }
+
+}
+
+
+function loadSidebar() {
+
+    const list = document.getElementById("contacts");
+
+    list.innerHTML = "";
+
+    Object.keys(userDB).forEach((name, index) => {
+
+        if (name === loggedInUser) return;
+
+        const div = document.createElement("div");
+
+        div.className = "contact-item";
+
+        div.id = "c-" + name;
+
+        div.onclick = () => openConversation(name, index + 1);
+
+        div.innerHTML = `
+            <img src="https://i.pravatar.cc/40?img=${index + 1}">
+            <span>${name}</span>
+        `;
+
+        list.appendChild(div);
+
+    });
+
+}
+
+
+function openConversation(name, imgId) {
+
+    targetUser = name;
+
+    document.getElementById("headerName").innerText = name;
+
+    const img = document.getElementById("headerImg");
+
+    img.src = `https://i.pravatar.cc/40?img=${imgId}`;
+
+    img.style.display = "block";
+
+    document.getElementById("msgInput").disabled = false;
+
+    document.getElementById("sendBtn").disabled = false;
+
+    document.querySelectorAll('.contact-item').forEach(i => i.classList.remove('active'));
+
+    document.getElementById("c-" + name).classList.add('active');
+
+    socket.emit("load messages", {
+    me: loggedInUser,
+    friend: targetUser
+});
+
+}
+
+
+function doSend() {
+
+    const input = document.getElementById("msgInput");
+
+    const val = input.value.trim();
+
+    if (!val) return;
+
+    const messageData = {
+
+        sender: loggedInUser,
+
+        receiver: targetUser,
+
+        text: val,
+
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+    };
+
+    socket.emit("chat message", messageData);
+
+    input.value = "";
+
+}
+
+
+// Receive message from server
+socket.on("chat message", function(data){
+
+    if(!targetUser) return;
+
+    if(
+        (data.sender === loggedInUser && data.receiver === targetUser) ||
+        (data.sender === targetUser && data.receiver === loggedInUser)
+    ){
+
+        const box = document.getElementById("msgBox");
+
+        const div = document.createElement("div");
+
+        div.className = `bubble ${data.sender === loggedInUser ? 'sent' : 'received'}`;
+
+        div.innerHTML = `${data.text}<div class="timestamp">${data.time}</div>`;
+
+        box.appendChild(div);
+
+        box.scrollTop = box.scrollHeight;
+
+    }
+
+});
+
+
+// Enter key support
+document.addEventListener("keypress", (e) => {
+
+    if (e.key === "Enter") {
+
+        if (loggedInUser) doSend();
+
+        else attemptLogin();
+
+    }
+
+});
+
+socket.on("chat history", function(messages){
+
+    const box = document.getElementById("msgBox");
+
+    box.innerHTML = "";
+
+    messages.forEach(m => {
+
+        const div = document.createElement("div");
+
+        div.className = "bubble " + (m.sender === loggedInUser ? "sent" : "received");
+
+        div.innerHTML = m.text + "<div class='timestamp'>" + m.time + "</div>";
+
+        box.appendChild(div);
+
+    });
+
+    box.scrollTop = box.scrollHeight;
+
+});
+
+
+</script>
+</body>
+</html>
