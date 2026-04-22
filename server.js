@@ -58,19 +58,21 @@ io.on("connection", (socket) => {
     /* Receive new message */
     socket.on("chat message", async (msg) => {
 
-        try {
+    try {
 
-            const newMsg = new Message(msg);
+        const newMsg = new Message(msg);
 
-            await newMsg.save();
+        await newMsg.save();
 
-            io.emit("chat message", msg);
+    } catch (err) {
+        console.log("DB save skipped:", err.message);
+    }
 
-        } catch (err) {
-            console.log("DB Error:", err);
-        }
+    // Message hamesha broadcast hoga
+    io.emit("chat message", msg);
 
-    });
+});
+    
 
     socket.on("disconnect", () => {
         console.log("User disconnected");
