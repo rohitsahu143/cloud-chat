@@ -9,7 +9,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 /* MongoDB Connection */
-mongoose.connect("mongodb://127.0.0.1:27017/cloudchat");
+mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/cloudchat");
 
 mongoose.connection.on("connected", () => {
     console.log("MongoDB Connected");
