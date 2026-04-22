@@ -9,12 +9,14 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 /* MongoDB Connection */
-mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/cloudchat");
+
+const mongoURI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/cloudchat";
+
+mongoose.connect(mongoURI);
 
 mongoose.connection.on("connected", () => {
     console.log("MongoDB Connected");
 });
-
 /* Message Schema */
 const MessageSchema = new mongoose.Schema({
     sender: String,
