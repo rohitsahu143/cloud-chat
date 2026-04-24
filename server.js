@@ -4,16 +4,18 @@ const http = require("http");
 const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const https = require("https");
+const bcrypt = require("bcryptjs");
 
 const app = express();
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: { origin: "*" },
   pingTimeout: 60000,
   pingInterval: 25000,
 });
 
-/* ✅ Handle crashes gracefully — prevents server from dying */
+/* ================= CRASH HANDLING ================= */
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err.message);
 });
@@ -21,7 +23,7 @@ process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });
 
-/* ✅ MongoDB Connection with auto-reconnect */
+/* ================= MONGODB ================= */
 const mongoURI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/cloudchat";
 
 const connectDB = async () => {
@@ -33,7 +35,7 @@ const connectDB = async () => {
     console.log("✅ MongoDB Connected");
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);
-    setTimeout(connectDB, 5000); // retry after 5 seconds
+    setTimeout(connectDB, 5000);
   }
 };
 connectDB();
@@ -43,7 +45,17 @@ mongoose.connection.on("disconnected", () => {
   setTimeout(connectDB, 5000);
 });
 
-/* Message Schema */
+/* ================= MODELS ================= */
+
+// User
+const UserSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+});
+const User = mongoose.model("User", UserSchema);
+
+// Message
 const MessageSchema = new mongoose.Schema({
   sender: String,
   receiver: String,
@@ -52,25 +64,85 @@ const MessageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", MessageSchema);
 
-/* ✅ Serve frontend */
+/* ================= MIDDLEWARE ================= */
+app.use(express.json());
 app.use(express.static("public"));
 
-/* ✅ Health check endpoint — required for keep-alive ping */
+/* ================= HEALTH ================= */
 app.get("/health", (req, res) => {
   res.status(200).send("OK");
 });
 
-/* ✅ Track connected users to avoid memory leak */
+/* ================= AUTH ROUTES ================= */
+
+// REGISTER
+app.post("/api/auth/register", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ msg: "All fields required" });
+  }
+
+  try {
+    let user = await User.findOne({ email });
+    if (user) return res.status(400).json({ msg: "User already exists" });
+
+    const hash = await bcrypt.hash(password, 10);
+
+    user = new User({ name, email, password: hash });
+    await user.save();
+
+    res.status(201).json({ msg: "Registered successfully" });
+
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// LOGIN
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ msg: "Invalid credentials" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ msg: "Invalid credentials" });
+
+    res.json({
+      msg: "Login success",
+      user: { name: user.name, email: user.email },
+    });
+
+  } catch (err) {
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// GET USERS
+app.get("/api/users", async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+/* ================= SOCKET ================= */
+
 const connectedUsers = new Map();
 
-/* Socket connection */
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
   connectedUsers.set(socket.id, { connectedAt: Date.now() });
 
-  /* ✅ Load old chat history — with limit to avoid overload */
+  // Load chat history
   socket.on("load messages", async (users) => {
     if (!users || !users.me || !users.friend) return;
+
     try {
       const msgs = await Message.find({
         $or: [
@@ -78,9 +150,9 @@ io.on("connection", (socket) => {
           { sender: users.friend, receiver: users.me },
         ],
       })
-        .sort({ _id: -1 })   // latest first
-        .limit(100)           // ✅ only load last 100 messages
-        .lean();              // ✅ faster, returns plain JS objects
+        .sort({ _id: -1 })
+        .limit(100)
+        .lean();
 
       socket.emit("chat history", msgs.reverse());
     } catch (err) {
@@ -89,9 +161,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  /* ✅ Receive and save new message */
+  // New message
   socket.on("chat message", async (msg) => {
-    if (!msg || !msg.text || !msg.sender) return; // ✅ validate before saving
+    if (!msg || !msg.text || !msg.sender) return;
 
     try {
       const newMsg = new Message(msg);
@@ -100,7 +172,6 @@ io.on("connection", (socket) => {
       console.error("DB save error:", err.message);
     }
 
-    // ✅ Always broadcast even if DB save fails
     io.emit("chat message", msg);
   });
 
@@ -110,22 +181,24 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ✅ Keep-alive ping — prevents Render free tier from sleeping */
+/* ================= KEEP ALIVE ================= */
 const RENDER_URL = process.env.RENDER_URL || "";
+
 if (RENDER_URL) {
   setInterval(() => {
     https
       .get(`${RENDER_URL}/health`, (res) => {
-        console.log(`Keep-alive ping sent ✅ status: ${res.statusCode}`);
+        console.log(`Keep-alive ping ✅ ${res.statusCode}`);
       })
       .on("error", (err) => {
-        console.error("Keep-alive ping failed:", err.message);
+        console.error("Keep-alive error:", err.message);
       });
-  }, 14 * 60 * 1000); // every 14 minutes
+  }, 14 * 60 * 1000);
 }
 
-/* Start server */
+/* ================= SERVER ================= */
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
