@@ -577,56 +577,121 @@
     document.getElementById('login-form').classList.toggle('active', tab === 'login');
     document.getElementById('register-form').classList.toggle('active', tab === 'register');
   }
-
   async function doLogin() {
-    const username = document.getElementById('login-user').value.trim();
-    const password = document.getElementById('login-pass').value;
-    const msg = document.getElementById('login-msg');
-    if (!username || !password) { msg.textContent = "Fill in all fields"; return; }
+
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value;
+  const msg = document.getElementById('login-msg');
+
+  if (!username || !password) {
+    msg.textContent = "Fill in all fields";
+    return;
+  }
+
+  try {
 
     const res = await fetch('/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
+
+    console.log("Login response status:", res.status);
+
     const data = await res.json();
 
+    console.log("Login response:", data);
+
     if (data.success) {
+
       me = username;
       enterApp();
+
     } else {
+
       msg.textContent = data.error || "Invalid credentials";
+
     }
+
+  } catch (err) {
+
+    console.error("LOGIN ERROR:", err);
+
+    msg.textContent = "Cannot connect to server";
+
+  }
+}
+
+  
+  async function doRegister() {
+  const username = document.getElementById('reg-user').value.trim();
+  const password = document.getElementById('reg-pass').value;
+  const password2 = document.getElementById('reg-pass2').value;
+  const msg = document.getElementById('reg-msg');
+
+  msg.className = 'auth-msg';
+
+  if (!username || !password) {
+    msg.textContent = "Fill in all fields";
+    msg.classList.add('error');
+    return;
   }
 
-  async function doRegister() {
-    const username = document.getElementById('reg-user').value.trim();
-    const password = document.getElementById('reg-pass').value;
-    const password2 = document.getElementById('reg-pass2').value;
-    const msg = document.getElementById('reg-msg');
-    msg.className = 'auth-msg';
+  if (password !== password2) {
+    msg.textContent = "Passwords don't match";
+    msg.classList.add('error');
+    return;
+  }
 
-    if (!username || !password) { msg.textContent = "Fill in all fields"; msg.classList.add('error'); return; }
-    if (password !== password2) { msg.textContent = "Passwords don't match"; msg.classList.add('error'); return; }
-    if (username.length < 3) { msg.textContent = "Username must be 3+ characters"; msg.classList.add('error'); return; }
+  if (username.length < 3) {
+    msg.textContent = "Username must be 3+ characters";
+    msg.classList.add('error');
+    return;
+  }
+
+  try {
 
     const res = await fetch('/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
+
+    console.log("Response status:", res.status);
+
     const data = await res.json();
 
+    console.log("Register response:", data);
+
     if (data.success) {
+
       msg.classList.add('success');
       msg.textContent = "Account created! Logging in...";
-      setTimeout(() => { me = username; enterApp(); }, 800);
+
+      setTimeout(() => {
+        me = username;
+        enterApp();
+      }, 800);
+
     } else {
+
       msg.classList.add('error');
       msg.textContent = data.error || "Registration failed";
-    }
-  }
 
+    }
+
+  } catch (err) {
+
+    console.error("REGISTER ERROR:", err);
+
+    msg.classList.add('error');
+    msg.textContent = "Cannot connect to server";
+
+  }
+}
+
+
+  
   function doLogout() {
     me = ""; target = ""; selected = [];
     document.getElementById('auth-overlay').style.display = 'flex';
